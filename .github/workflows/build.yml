@@ -63,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - *flutter
-      - run: core/apple/build.sh
+      - run: sh core/apple/build.sh
       - run: flutter build macos --release
       - run: ditto -c -k --keepParent build/macos/Build/Products/Release/photokeeper.app photokeeper-macos-arm64.zip
       - run: flutter build ios --release --no-codesign
