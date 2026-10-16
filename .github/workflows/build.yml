@@ -1,5 +1,6 @@
 # Builds every platform on its own native runner (Flutter cannot cross-compile desktop apps).
-# Every push and PR uploads the builds as workflow artifacts; a `v*` tag also attaches them to a GitHub Release.
+# Every push and PR uploads the builds as workflow artifacts. A push to main also publishes whatever
+# finished as the "latest" GitHub Release; a v* tag publishes a versioned release instead.
 # The C++ core is cloned by core/src/CMakeLists.txt (FetchContent), so no second checkout here.
 # All outputs are unsigned: fine for sideloading and testing, stores and Gatekeeper need signing secrets added later.
 name: build
@@ -77,12 +78,24 @@ jobs:
             photokeeper-ios-unsigned.ipa
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # runs even when some platforms failed, so the ones that built still get published
+    if: >-
+      !cancelled() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      (needs.linux.result == 'success' || needs.windows.result == 'success' ||
+       needs.android.result == 'success' || needs.apple.result == 'success')
     needs: [linux, windows, android, apple]
     runs-on: ubuntu-24.04
     permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { merge-multiple: true }
-      - uses: softprops/action-gh-release@v2
-        with: { files: 'photokeeper-*' }
+      - name: Publish a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then tag="${{ github.ref_name }}"; title="$tag"; flags=""; else
+            tag=latest; title="Latest build"; flags=--prerelease
+            gh release delete latest --yes --cleanup-tag || true   # replace the previous build
+          fi
+          gh release create "$tag" photokeeper-* --title "$title" --target "${{ github.sha }}" $flags \
+            --notes "Built from ${{ github.sha }}. Unsigned: sideload only."
