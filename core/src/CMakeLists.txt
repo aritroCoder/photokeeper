@@ -5,13 +5,13 @@ project(photokeeper_core_library LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # static OpenCV + pipeline end up inside a shared library
 
 # The C++ core is its own repo. A sibling checkout wins so core changes can be developed in place;
-# otherwise fetch it. shortcut: GIT_TAG main, pin a commit before the first release.
+# otherwise (CI) fetch it. shortcut: GIT_TAG tracks the cpp branch, pin a commit before the first release.
 include(FetchContent)
 set(sibling "${CMAKE_CURRENT_SOURCE_DIR}/../../../photokeeper")
-if(EXISTS "${sibling}/CMakeLists.txt")
+if(EXISTS "${sibling}/pipeline_c/pk.h")  # not just any ../photokeeper: in CI that is this app repo itself
   set(FETCHCONTENT_SOURCE_DIR_PHOTOKEEPER "${sibling}")
 endif()
-FetchContent_Declare(photokeeper GIT_REPOSITORY https://github.com/aritroCoder/photokeeper-cli.git GIT_TAG main)
+FetchContent_Declare(photokeeper GIT_REPOSITORY https://github.com/aritroCoder/photokeeper-cli.git GIT_TAG cpp GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(photokeeper)
 
 add_library(photokeeper_core SHARED "${photokeeper_SOURCE_DIR}/pipeline_c/pk.cpp")

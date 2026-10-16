@@ -1,5 +1,6 @@
 # Builds every platform on its own native runner (Flutter cannot cross-compile desktop apps).
 # Every push and PR uploads the builds as workflow artifacts; a `v*` tag also attaches them to a GitHub Release.
+# The C++ core is cloned by core/src/CMakeLists.txt (FetchContent), so no second checkout here.
 # All outputs are unsigned: fine for sideloading and testing, stores and Gatekeeper need signing secrets added later.
 name: build
 
@@ -12,21 +13,12 @@ on:
 
 env:
   FLUTTER_VERSION: 3.44.6
-  CLI_REPO: aritroCoder/photokeeper-cli
-  CLI_REF: main  # shortcut: tracks main, pin a commit once releases need to be reproducible
 
 jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - &cli
-        name: Check out the C++ core next to the app (core/src/CMakeLists.txt looks for ../photokeeper)
-        uses: actions/checkout@v4
-        with: { repository: '${{ env.CLI_REPO }}', ref: '${{ env.CLI_REF }}', path: cli }
-      - &cli-move
-        run: mv cli ../photokeeper
-        shell: bash
       - &flutter
         uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', cache: true }
@@ -41,8 +33,6 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - *cli
-      - *cli-move
       - *flutter
       - run: flutter build windows --release
       - name: Bundle the VC++ runtime so machines without the redistributable can start the exe
@@ -58,8 +48,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - *cli
-      - *cli-move
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - *flutter
@@ -74,8 +62,6 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - *cli
-      - *cli-move
       - *flutter
       - run: core/apple/build.sh
       - run: flutter build macos --release
