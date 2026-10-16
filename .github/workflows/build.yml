@@ -92,6 +92,7 @@ jobs:
       - name: Publish a GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ "${{ github.ref_type }}" = tag ]; then tag="${{ github.ref_name }}"; title="$tag"; flags=""; else
             tag=latest; title="Latest build"; flags=--prerelease

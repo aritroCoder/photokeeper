@@ -12,7 +12,14 @@ if(EXISTS "${sibling}/pipeline_c/pk.h")  # not just any ../photokeeper: in CI th
   set(FETCHCONTENT_SOURCE_DIR_PHOTOKEEPER "${sibling}")
 endif()
 FetchContent_Declare(photokeeper GIT_REPOSITORY https://github.com/aritroCoder/photokeeper-cli.git GIT_TAG cpp GIT_SHALLOW TRUE)
+# OpenCV probes video backends even when videoio is outside BUILD_LIST. Its Orbbec SDK
+# probe assumes OpenCV is the top-level project and fails when embedded on macOS arm64.
+set(WITH_OBSENSOR OFF CACHE BOOL "Build without the unused Orbbec camera backend" FORCE)
 FetchContent_MakeAvailable(photokeeper)
+# Flutter bundles photokeeper_core below; the static dependencies need no installation.
+# Exclude the entire dependency tree so INSTALL cannot enter OpenCV, whose install
+# script is disabled by the core repo. Linked targets still build as dependencies.
+set_property(DIRECTORY "${photokeeper_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 add_library(photokeeper_core SHARED "${photokeeper_SOURCE_DIR}/pipeline_c/pk.cpp")
 target_link_libraries(photokeeper_core PRIVATE pipeline)
