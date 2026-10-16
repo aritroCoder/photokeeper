@@ -6,7 +6,9 @@ cd "$(dirname "$0")"
 rm -rf out && mkdir -p out
 slice() {  # name, cmake args...
   name=$1; shift
-  cmake -S ../src -B "out/$name" -G Xcode -DCMAKE_BUILD_TYPE=Release "$@"
+  # CPU_DISPATCH empty: the Xcode generator drops OpenCV's dispatched NEON objects, so the dnn
+  # kernels they reference never get linked. Compiling NEON as the baseline avoids that.
+  cmake -S ../src -B "out/$name" -G Xcode -DCMAKE_BUILD_TYPE=Release -DCPU_BASELINE=NEON -DCPU_DISPATCH= "$@"
   cmake --build "out/$name" --config Release --target photokeeper_core
 }
 slice ios        -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
