@@ -44,9 +44,17 @@ jobs:
             if (!(Test-Path "$out\$file" -PathType Leaf)) { throw "Missing Windows bundle file: $out\$file" }
           }
           foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") { Copy-Item "C:\Windows\System32\$dll" $out }
-          Compress-Archive -Path "$out\*" -DestinationPath photokeeper-windows-x64.zip
+      - name: Build the Windows installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\installer\photokeeper.iss'
+      - name: Test installation, upgrade, and uninstall
+        shell: pwsh
+        run: >-
+          ./windows/installer/test-installer.ps1
+          -InstallerPath photokeeper-windows-x64-setup.exe
+          -BundleDir build/windows/x64/runner/Release
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: photokeeper-windows-x64.zip, if-no-files-found: error }
+        with: { name: windows, path: photokeeper-windows-x64-setup.exe, if-no-files-found: error }
 
   android:
     runs-on: ubuntu-24.04
