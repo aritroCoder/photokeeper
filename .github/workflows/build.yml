@@ -40,10 +40,13 @@ jobs:
         shell: pwsh
         run: |
           $out = "build\windows\x64\runner\Release"
+          foreach ($file in "photokeeper.exe", "photokeeper_core.dll", "flutter_windows.dll") {
+            if (!(Test-Path "$out\$file" -PathType Leaf)) { throw "Missing Windows bundle file: $out\$file" }
+          }
           foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") { Copy-Item "C:\Windows\System32\$dll" $out }
           Compress-Archive -Path "$out\*" -DestinationPath photokeeper-windows-x64.zip
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: photokeeper-windows-x64.zip }
+        with: { name: windows, path: photokeeper-windows-x64.zip, if-no-files-found: error }
 
   android:
     runs-on: ubuntu-24.04

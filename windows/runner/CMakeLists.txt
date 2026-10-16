@@ -16,6 +16,12 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
+# OpenCV sets the cached EXECUTABLE_OUTPUT_PATH to build/bin. Keep Flutter's
+# runner and its installed bundle in runner/<configuration>, where tooling expects it.
+set_target_properties(${BINARY_NAME} PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
