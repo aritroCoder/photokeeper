@@ -7,10 +7,13 @@ rm -rf out && mkdir -p out
 command -v ninja >/dev/null || brew install ninja
 slice() {  # name, cmake args...
   name=$1; shift
-  # Ninja, not the Xcode generator: with Xcode the NEON compile check runs before the iOS toolchain
-  # is applied, reports NEON unavailable, and the dnn kernels are left out of the link.
+  # CMAKE_SYSTEM_NAME=iOS leaves CMAKE_SYSTEM_PROCESSOR empty, so OpenCV never enables NEON and
+  # then excludes the .neon.cpp files. The compiler still defines __ARM_NEON, so the link fails.
   cmake -S ../src -B "out/$name" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCPU_BASELINE=NEON -DCPU_DISPATCH= "$@"
+    -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCPU_BASELINE=NEON -DCPU_DISPATCH= "$@" > "out/$name.log" 2>&1 \
+    || { cat "out/$name.log"; exit 1; }
+  cat "out/$name.log"
+  if grep -q "Optimization NEON is not available" "out/$name.log"; then echo "NEON was not enabled"; exit 1; fi
   cmake --build "out/$name" --target photokeeper_core
 }
 slice ios     -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos \
