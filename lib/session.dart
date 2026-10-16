@@ -1,0 +1,129 @@
+// One scan from start to summary: lists photos, fans them out to worker isolates that call the core,
+// keeps the verdicts and the user's overrides, and performs the delete.
+import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+
+import 'package:flutter/foundation.dart';
+import 'package:photokeeper_core/photokeeper_core.dart' as core;
+
+import 'source.dart';
+
+enum Stage { start, scanning, review, done }
+
+enum Filter { suggested, screenshot, document, text, keep }
+
+/// Which of the core's ramps drove a delete verdict; thresholds are where pipeline.cpp's ramps saturate.
+/// shortcut: first saturated signal wins, good enough for a label; the verdict itself is the core's weighted vote
+String reason(List<double> f) {
+  if (f[2] >= 0.6) return 'screenshot'; // axis_edge_ratio
+  if (f[4] >= 0.05) return 'text'; // text_area_ratio
+  if (f[1] >= 0.9 || f[3] >= 0.3) return 'document'; // palette_flatness, clipped
+  return 'low score';
+}
+
+class Session extends ChangeNotifier {
+  Stage stage = Stage.start;
+  String? error;
+  PhotoSource? source;
+  List<Photo> photos = [];
+  final Map<int, List<double>?> features = {}; // index -> features, null when undecodable
+  final Map<int, bool> keeps = {}; // the core's verdict, decodable photos only
+  final Set<int> selected = {}; // indices to delete; seeded from the verdicts, then the user's
+  final Stopwatch clock = Stopwatch();
+  List<Photo> deleted = [];
+
+  int get done => features.length;
+  bool verdictDelete(int i) => keeps[i] == false;
+  int get suggested => keeps.values.where((k) => !k).length;
+  int get freedBytes => deleted.fold(0, (sum, p) => sum + p.bytes);
+
+  /// Review filters; the middle three match [reason] labels by name.
+  List<int> indices(Filter f) => [
+    for (final i in keeps.keys)
+      if (switch (f) {
+        Filter.suggested => verdictDelete(i),
+        Filter.keep => !verdictDelete(i),
+        _ => verdictDelete(i) && reason(features[i]!) == f.name,
+      })
+        i,
+  ]..sort();
+
+  Future<void> start(PhotoSource s) async {
+    source = s;
+    stage = Stage.scanning;
+    error = null;
+    notifyListeners();
+    try {
+      photos = await s.list();
+    } catch (e) {
+      error = '$e';
+      stage = Stage.start;
+      notifyListeners();
+      return;
+    }
+    notifyListeners();
+    clock
+      ..reset()
+      ..start();
+    var next = 0;
+    final workers = Platform.numberOfProcessors.clamp(1, 6); // faces/text detectors serialise behind locks anyway
+    await Future.wait([for (var w = 0; w < workers; w++) _worker(() => next < photos.length ? next++ : null)]);
+    clock.stop();
+    stage = Stage.review;
+    notifyListeners();
+  }
+
+  Future<void> _worker(int? Function() take) async {
+    final rx = ReceivePort();
+    final results = StreamIterator(rx);
+    await Isolate.spawn(_analyze, rx.sendPort);
+    await results.moveNext();
+    final tx = results.current as SendPort;
+    for (var i = take(); i != null; i = take()) {
+      final payload = await photos[i].payload();
+      List<double>? f;
+      if (payload != null) {
+        tx.send(payload);
+        await results.moveNext();
+        f = results.current as List<double>?;
+      }
+      features[i] = f;
+      if (f != null && !(keeps[i] = core.keep(f))) selected.add(i);
+      notifyListeners();
+    }
+    tx.send(null);
+    rx.close();
+  }
+
+  // Runs in a worker isolate; the core's model and mutexes are process-wide so every isolate shares them.
+  static void _analyze(SendPort out) {
+    final rx = ReceivePort();
+    out.send(rx.sendPort);
+    rx.listen((payload) {
+      if (payload == null) return rx.close();
+      out.send(payload is String ? core.analyzePath(payload) : core.analyzeBytes(payload as Uint8List));
+    });
+  }
+
+  void toggle(int i, {bool? delete}) {
+    (delete ?? !selected.contains(i)) ? selected.add(i) : selected.remove(i);
+    notifyListeners();
+  }
+
+  Future<void> deleteSelected() async {
+    deleted = await source!.delete([for (final i in selected) photos[i]]);
+    stage = Stage.done;
+    notifyListeners();
+  }
+
+  void reset() {
+    stage = Stage.start;
+    photos = [];
+    features.clear();
+    keeps.clear();
+    selected.clear();
+    deleted = [];
+    notifyListeners();
+  }
+}

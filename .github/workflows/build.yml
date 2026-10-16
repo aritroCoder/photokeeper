@@ -1,0 +1,102 @@
+# Builds every platform on its own native runner (Flutter cannot cross-compile desktop apps).
+# Every push and PR uploads the builds as workflow artifacts; a `v*` tag also attaches them to a GitHub Release.
+# All outputs are unsigned: fine for sideloading and testing, stores and Gatekeeper need signing secrets added later.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: 3.44.6
+  CLI_REPO: aritroCoder/photokeeper-cli
+  CLI_REF: main  # shortcut: tracks main, pin a commit once releases need to be reproducible
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - &cli
+        name: Check out the C++ core next to the app (core/src/CMakeLists.txt looks for ../photokeeper)
+        uses: actions/checkout@v4
+        with: { repository: '${{ env.CLI_REPO }}', ref: '${{ env.CLI_REF }}', path: cli }
+      - &cli-move
+        run: mv cli ../photokeeper
+        shell: bash
+      - &flutter
+        uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', cache: true }
+      - run: sudo apt-get update && sudo apt-get install -y clang ninja-build libgtk-3-dev
+      - run: flutter analyze
+      - run: flutter build linux --release
+      - run: tar -C build/linux/x64/release -czf photokeeper-linux-x64.tar.gz bundle
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: photokeeper-linux-x64.tar.gz }
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - *cli
+      - *cli-move
+      - *flutter
+      - run: flutter build windows --release
+      - name: Bundle the VC++ runtime so machines without the redistributable can start the exe
+        shell: pwsh
+        run: |
+          $out = "build\windows\x64\runner\Release"
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") { Copy-Item "C:\Windows\System32\$dll" $out }
+          Compress-Archive -Path "$out\*" -DestinationPath photokeeper-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: photokeeper-windows-x64.zip }
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - *cli
+      - *cli-move
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - *flutter
+      - name: CMake version pinned in core/android/build.gradle (the core needs >= 3.24)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" > /dev/null
+      - run: flutter build apk --release
+      - run: cp build/app/outputs/flutter-apk/app-release.apk photokeeper-android-arm64.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: photokeeper-android-arm64.apk }
+
+  apple:  # one job so the xcframework (three OpenCV builds) is compiled once for both
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - *cli
+      - *cli-move
+      - *flutter
+      - run: core/apple/build.sh
+      - run: flutter build macos --release
+      - run: ditto -c -k --keepParent build/macos/Build/Products/Release/photokeeper.app photokeeper-macos-arm64.zip
+      - run: flutter build ios --release --no-codesign
+      - name: Unsigned .ipa (sideload with AltStore/Sideloadly, or re-sign)
+        run: mkdir Payload && cp -R build/ios/iphoneos/Runner.app Payload/ && zip -qr photokeeper-ios-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple
+          path: |
+            photokeeper-macos-arm64.zip
+            photokeeper-ios-unsigned.ipa
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, android, apple]
+    runs-on: ubuntu-24.04
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with: { files: 'photokeeper-*' }
