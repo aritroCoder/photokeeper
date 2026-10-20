@@ -26,6 +26,23 @@ foreach ($pass in 1, 2) {
     if ($process.ExitCode -ne 0) { throw "Installer failed with exit code $($process.ExitCode); logs: $testRoot" }
 }
 
+# The in-app updater runs Setup like this after quitting, and expects the app to start again.
+# WaitForExit, not -Wait: -Wait would also wait for the relaunched app.
+$process = Start-Process -FilePath $installer -PassThru -ArgumentList @(
+    "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1",
+    "/DIR=`"$installDir`"", "/LOG=`"$testRoot\relaunch.log`""
+)
+$process.WaitForExit()
+if ($process.ExitCode -ne 0) { throw "Relaunch install failed with exit code $($process.ExitCode); logs: $testRoot" }
+$app = $null
+for ($i = 0; !$app -and $i -lt 30; $i++) {
+    Start-Sleep 1
+    $app = Get-Process photokeeper -ErrorAction SilentlyContinue
+}
+if (!$app) { throw "Setup /RELAUNCH=1 did not start the app again" }
+$app | Stop-Process -Force
+$app | Wait-Process
+
 # Compare the entire payload, including nested Flutter assets and native libraries.
 foreach ($source in Get-ChildItem $bundle -Recurse -File) {
     $relative = [IO.Path]::GetRelativePath($bundle, $source.FullName)

@@ -33,3 +33,11 @@ Name: "{autodesktop}\PhotoKeeper"; Filename: "{app}\photokeeper.exe"; WorkingDir
 
 [Run]
 Filename: "{app}\photokeeper.exe"; Description: "Launch PhotoKeeper"; Flags: nowait postinstall skipifsilent
+; The in-app updater runs Setup silently with /RELAUNCH=1 after quitting, and expects the app back.
+Filename: "{app}\photokeeper.exe"; Flags: nowait; Check: Relaunch
+
+[Code]
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;

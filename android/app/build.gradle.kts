@@ -27,13 +27,29 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
-    buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+    signingConfigs {
+        // Android only installs an update signed with the same key as the installed app, so every published
+        // APK must use this one. CI decodes it from the ANDROID_KEYSTORE_B64 secret.
+        System.getenv("ANDROID_KEYSTORE")?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = "photokeeper"
+                keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
         }
     }
+
+    buildTypes {
+        release {
+            // Without the key (local builds), fall back to debug keys so `flutter run --release` works.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+        }
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core:1.13.1") // FileProvider, for handing the update APK to the installer
 }
 
 kotlin {

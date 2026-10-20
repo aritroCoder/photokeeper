@@ -9,6 +9,7 @@ import 'package:photokeeper_core/photokeeper_core.dart' show signalNames;
 
 import 'session.dart';
 import 'source.dart';
+import 'update.dart';
 
 const keepGreen = Color(0xFF2E9E5B);
 const deleteCoral = Color(0xFFE5574B);
@@ -86,6 +87,8 @@ class StartScreen extends StatelessWidget {
                   style: text.bodySmall?.copyWith(color: session.error == null ? Colors.black45 : deleteCoral),
                   textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 32),
+                TextButton(onPressed: () => checkForUpdates(context), child: const Text('Check for updates')),
               ],
             ),
           ),
