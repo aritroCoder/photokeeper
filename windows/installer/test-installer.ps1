@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 $shortcuts = @(
     (Join-Path ([Environment]::GetFolderPath("Programs")) "PhotoKeeper.lnk"),
     (Join-Path ([Environment]::GetFolderPath("DesktopDirectory")) "PhotoKeeper.lnk")
+)
 foreach ($shortcut in $shortcuts) {
     if (Test-Path $shortcut) { throw "Run this smoke test on a clean Windows runner: $shortcut already exists" }
 }
