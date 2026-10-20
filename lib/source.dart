@@ -1,7 +1,9 @@
 // Where photos come from. Desktop scans a folder and the core decodes files itself; phones go through the
 // system gallery, which hands over already-decoded thumbnails (HEIC included) and owns the delete dialog.
 import 'dart:io';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -130,10 +132,38 @@ class AssetPhoto implements Photo {
   Future<Object?> payload() => asset.thumbnailDataWithSize(const ThumbnailSize(640, 640), quality: 90);
 
   @override
-  Widget image(int px, {BoxFit fit = BoxFit.cover}) => FutureBuilder(
-    future: asset.thumbnailDataWithSize(ThumbnailSize.square(px)),
-    builder: (_, snap) => snap.data == null
-        ? const ColoredBox(color: Color(0xFFE8E8E4))
-        : Image.memory(snap.data!, fit: fit, gaplessPlayback: true),
+  Widget image(int px, {BoxFit fit = BoxFit.cover}) => Image(
+    image: GalleryThumb(asset, px),
+    fit: fit,
+    gaplessPlayback: true,
+    frameBuilder: (_, child, frame, sync) => frame == null && !sync ? const ColoredBox(color: Color(0xFFE8E8E4)) : child,
+    errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
   );
+}
+
+/// A gallery thumbnail behind Flutter's ImageCache: the scanning grid rebuilds once per analyzed photo, and
+/// each rebuild must reuse the request already in flight instead of queuing another behind the scan's own.
+class GalleryThumb extends ImageProvider<GalleryThumb> {
+  const GalleryThumb(this.asset, this.px);
+  final AssetEntity asset;
+  final int px;
+
+  @override
+  Future<GalleryThumb> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(GalleryThumb key, ImageDecoderCallback decode) =>
+      MultiFrameImageStreamCompleter(codec: _codec(decode), scale: 1);
+
+  Future<ui.Codec> _codec(ImageDecoderCallback decode) async {
+    final bytes = await asset.thumbnailDataWithSize(ThumbnailSize.square(px));
+    if (bytes == null) throw StateError('no thumbnail for ${asset.id}');
+    return decode(await ui.ImmutableBuffer.fromUint8List(bytes));
+  }
+
+  @override
+  bool operator ==(Object other) => other is GalleryThumb && other.asset.id == asset.id && other.px == px;
+
+  @override
+  int get hashCode => Object.hash(asset.id, px);
 }

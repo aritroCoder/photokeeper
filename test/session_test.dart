@@ -2,7 +2,9 @@
 //   cmake -S core/src -B /tmp/pkcore && cmake --build /tmp/pkcore -j6 && LD_LIBRARY_PATH=/tmp/pkcore flutter test
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:photokeeper/session.dart';
 import 'package:photokeeper/source.dart';
 import 'package:photokeeper_core/photokeeper_core.dart' as core;
@@ -46,5 +48,13 @@ void main() {
     expect(Directory('${root.path}/${FolderSource.trashName}').listSync().length, 3);
     expect(root.listSync().whereType<File>().length, 9 - 3);
     root.deleteSync(recursive: true);
+  });
+
+  test('gallery thumbnails survive rebuilds: same asset and size is one cached image', () {
+    ImageProvider thumb(String id, int px) =>
+        (AssetPhoto(AssetEntity(id: id, typeInt: 1, width: 4000, height: 3000)).image(px) as Image).image;
+    expect(thumb('a', 480), thumb('a', 480));
+    expect(thumb('a', 480), isNot(thumb('a', 3600)));
+    expect(thumb('a', 480), isNot(thumb('b', 480)));
   });
 }

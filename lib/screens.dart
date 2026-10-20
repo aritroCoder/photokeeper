@@ -191,12 +191,11 @@ class ScanningScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 gridDelegate: _grid,
                 itemCount: total,
-                itemBuilder: (_, i) => s.features.containsKey(i)
-                    ? Cell(
-                        s.photos[i],
-                        badge: s.features[i] == null ? null : dot(s.verdictDelete(i) ? deleteCoral : keepGreen),
-                      )
-                    : const ColoredBox(color: Color(0xFFE8E8E4)),
+                itemBuilder: (_, i) => Cell(
+                  s.photos[i],
+                  badge: s.features[i] == null ? null : dot(s.verdictDelete(i) ? deleteCoral : keepGreen),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Preview(s.photos[i]))),
+                ),
               ),
             ),
           ],
@@ -204,6 +203,25 @@ class ScanningScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Look-only view while the scan runs; deciding waits for the review screen, where every photo has a verdict.
+class Preview extends StatelessWidget {
+  const Preview(this.photo, {super.key});
+  final Photo photo;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(backgroundColor: surface),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: SizedBox.expand(
+          child: photo.image((1200 * MediaQuery.devicePixelRatioOf(context)).round(), fit: BoxFit.contain),
+        ),
+      ),
+    ),
+  );
 }
 
 // ---- 3. review grid ----
