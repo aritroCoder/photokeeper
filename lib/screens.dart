@@ -270,7 +270,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
       appBar: AppBar(
         backgroundColor: surface,
         title: Text('Suggested delete · ${s.suggested} photos${bytes > 0 ? ' · ${fmtBytes(bytes)}' : ''}'),
-        actions: [TextButton(onPressed: s.reset, child: const Text('Start over'))],
+        actions: [
+          TextButton(onPressed: s.reset, child: const Text('Start over')),
+          PopupMenuButton<void>(
+            tooltip: 'More',
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PerfScreen(s))),
+                child: const Text('Advanced: performance stats'),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -539,6 +550,75 @@ class _Swipe extends StatelessWidget {
     padding: const EdgeInsets.all(32),
     child: Icon(icon, color: color, size: 48),
   );
+}
+
+// ---- advanced: benchmark numbers for the last scan, behind the review screen's overflow menu ----
+
+class PerfScreen extends StatelessWidget {
+  const PerfScreen(this.session, {super.key});
+  final Session session;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    final ms = s.coreMs;
+    String at(double p) => '${percentile(ms, p).toStringAsFixed(1)} ms';
+    final rows = [
+      ('Photos analyzed', '${ms.length}'),
+      ('Worker isolates', '${s.workers}'),
+      ('Avg ms/img', '${(ms.isEmpty ? double.nan : ms.reduce((a, b) => a + b) / ms.length).toStringAsFixed(1)} ms'),
+      ('p50 ms/img', at(.5)),
+      ('p95 ms/img', at(.95)),
+      ('Max ms/img', at(1)),
+      ('RSS before scan', fmtBytes(s.rssBefore)),
+      ('Peak RSS during scan', fmtBytes(s.rssPeak)),
+      ('RSS growth', fmtBytes(s.rssPeak - s.rssBefore)),
+      ('Input', s.source is GallerySource ? 'gallery thumbnails, 640 px JPEG' : 'image files'),
+      (
+        'Device',
+        '${Platform.numberOfProcessors} cores, ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      ),
+    ];
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: surface,
+        title: const Text('Advanced · Performance'),
+        actions: [
+          IconButton(
+            tooltip: 'Copy',
+            icon: const Icon(Icons.copy),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: [for (final (k, v) in rows) '$k: $v'].join('\n')));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+            },
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'For benchmarking the classifier on this device; nothing here affects your photos. '
+            'Times are per photo inside the PhotoKeeper core (decode and the five signals; the first photos '
+            'also load the models), not gallery loading or the UI. RSS is the whole app process, sampled '
+            'after each photo.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+          ),
+          const SizedBox(height: 16),
+          for (final (k, v) in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(child: Text(k)),
+                  Flexible(child: Text(v, textAlign: TextAlign.right)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 // ---- 5. summary ----

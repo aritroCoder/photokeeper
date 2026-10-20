@@ -45,6 +45,13 @@ String reason(List<double> f) {
   return 'low score';
 }
 
+/// Nearest-rank percentile, [p] in (0, 1]; NaN when [xs] is empty.
+double percentile(List<double> xs, double p) {
+  if (xs.isEmpty) return double.nan;
+  final s = [...xs]..sort();
+  return s[(p * s.length).ceil() - 1];
+}
+
 class Session extends ChangeNotifier {
   Stage stage = Stage.start;
   String? error;
@@ -55,6 +62,9 @@ class Session extends ChangeNotifier {
   final Set<int> selected = {}; // indices to delete; seeded from the verdicts, then the user's
   final Stopwatch clock = Stopwatch();
   List<Photo> deleted = [];
+  int workers = 0;
+  final List<double> coreMs = []; // per photo the core saw: time inside its analyze call, decode included
+  int rssBefore = 0, rssPeak = 0; // whole process, bytes
 
   int get done => features.length;
   bool verdictDelete(int i) => keeps[i] == false;
@@ -80,11 +90,13 @@ class Session extends ChangeNotifier {
       return;
     }
     notifyListeners();
+    coreMs.clear();
+    rssBefore = rssPeak = ProcessInfo.currentRss;
     clock
       ..reset()
       ..start();
     var next = 0;
-    final workers = Platform.numberOfProcessors.clamp(1, 6); // faces/text detectors serialise behind locks anyway
+    workers = Platform.numberOfProcessors.clamp(1, 6); // faces/text detectors serialise behind locks anyway
     await Future.wait([for (var w = 0; w < workers; w++) _worker(() => next < photos.length ? next++ : null)]);
     clock.stop();
     stage = Stage.review;
@@ -103,7 +115,11 @@ class Session extends ChangeNotifier {
       if (payload != null) {
         tx.send(payload);
         await results.moveNext();
-        f = results.current as List<double>?;
+        final (r, ms) = results.current as (List<double>?, double);
+        f = r;
+        coreMs.add(ms);
+        // shortcut: sampled once per photo, so a spike inside one analyze call is missed; read the core's own peak if that matters
+        rssPeak = max(rssPeak, ProcessInfo.currentRss);
       }
       features[i] = f;
       if (f != null && !(keeps[i] = core.keep(f))) selected.add(i);
@@ -119,7 +135,9 @@ class Session extends ChangeNotifier {
     out.send(rx.sendPort);
     rx.listen((payload) {
       if (payload == null) return rx.close();
-      out.send(payload is String ? core.analyzePath(payload) : core.analyzeBytes(payload as Uint8List));
+      final sw = Stopwatch()..start();
+      final f = payload is String ? core.analyzePath(payload) : core.analyzeBytes(payload as Uint8List);
+      out.send((f, sw.elapsedMicroseconds / 1000));
     });
   }
 

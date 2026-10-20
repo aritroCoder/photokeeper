@@ -28,6 +28,8 @@ void main() {
     expect(s.keeps[at('7_yes.jpeg')], false);
     expect(s.keeps[at('3_no.png')], true);
     expect(s.features[at('junk.jpg')], isNull);
+    expect(s.coreMs.length, 7, reason: 'one core timing per photo, undecodable included');
+    expect(s.coreMs.every((ms) => ms > 0) && s.rssBefore > 0 && s.rssPeak >= s.rssBefore, true);
     expect(s.selected.length, 4);
     expect(s.indices(Filter.delete).length, 4);
     expect(s.indices(Filter.keep).length, 2);
@@ -48,6 +50,12 @@ void main() {
     expect(Directory('${root.path}/${FolderSource.trashName}').listSync().length, 3);
     expect(root.listSync().whereType<File>().length, 9 - 3);
     root.deleteSync(recursive: true);
+  });
+
+  test('nearest-rank percentile', () {
+    const xs = [5.0, 1.0, 4.0, 2.0, 3.0];
+    expect([percentile(xs, .5), percentile(xs, .95), percentile(xs, 1)], [3.0, 5.0, 5.0]);
+    expect(percentile([], .95).isNaN, true);
   });
 
   test('gallery thumbnails survive rebuilds: same asset and size is one cached image', () {
