@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:photokeeper_core/photokeeper_core.dart' as core;
@@ -11,7 +12,29 @@ import 'source.dart';
 
 enum Stage { start, scanning, review, done }
 
-enum Filter { suggested, screenshot, document, text, keep }
+enum Filter { delete, keep }
+
+/// pipeline.cpp's vote mirrored for the preview: per signal its keep-likeness ramp and weight.
+/// session_test fails if this drifts from the core's verdict.
+final List<(double Function(double), double)> _vote = [
+  ((v) => min(v, 1.0), 0.03),
+  ((v) => ((0.9 - v) / 0.4).clamp(0.0, 1.0), 0.10),
+  ((v) => ((0.6 - v) / 0.4).clamp(0.0, 1.0), 0.19),
+  ((v) => (1 - v / 0.3).clamp(0.0, 1.0), 0.13),
+  ((v) => (1 - v / 0.05).clamp(0.0, 1.0), 0.55),
+];
+const keepThreshold = 0.78;
+
+/// Screenshot-like edges mark a photo for delete whatever its score, as in the core.
+bool edgeVeto(List<double> f) => f[2] >= 0.6;
+
+/// Keep-likeness in [0, 1] per signal; a failed (NaN) signal is neutral, as in the core.
+List<double> keepLikeness(List<double> f) => [for (var k = 0; k < f.length; k++) f[k].isNaN ? 0.5 : _vote[k].$1(f[k])];
+
+double keepScore(List<double> f) {
+  final l = keepLikeness(f);
+  return [for (var k = 0; k < l.length; k++) _vote[k].$2 * l[k]].fold(0.0, (a, b) => a + b);
+}
 
 /// Which of the core's ramps drove a delete verdict; thresholds are where pipeline.cpp's ramps saturate.
 /// shortcut: first saturated signal wins, good enough for a label; the verdict itself is the core's weighted vote
@@ -38,15 +61,9 @@ class Session extends ChangeNotifier {
   int get suggested => keeps.values.where((k) => !k).length;
   int get freedBytes => deleted.fold(0, (sum, p) => sum + p.bytes);
 
-  /// Review filters; the middle three match [reason] labels by name.
   List<int> indices(Filter f) => [
     for (final i in keeps.keys)
-      if (switch (f) {
-        Filter.suggested => verdictDelete(i),
-        Filter.keep => !verdictDelete(i),
-        _ => verdictDelete(i) && reason(features[i]!) == f.name,
-      })
-        i,
+      if (verdictDelete(i) == (f == Filter.delete)) i,
   ]..sort();
 
   Future<void> start(PhotoSource s) async {

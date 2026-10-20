@@ -23,19 +23,28 @@ void main() {
     expect(s.photos.length, 7, reason: 'HEIC is filtered by extension, junk.jpg is listed');
     int at(String name) => s.photos.indexWhere((p) => p.id.endsWith(name));
     expect(s.keeps[at('5_yes.jpeg')], false); // same verdicts as `photokeeper eval_data`
-    expect(s.keeps[at('7_yes.jpeg')], true);
+    expect(s.keeps[at('7_yes.jpeg')], false);
     expect(s.keeps[at('3_no.png')], true);
     expect(s.features[at('junk.jpg')], isNull);
-    expect(s.selected.length, 3);
-    expect(s.indices(Filter.suggested).length, 3);
-    expect(s.indices(Filter.keep).length, 3);
+    expect(s.selected.length, 4);
+    expect(s.indices(Filter.delete).length, 4);
+    expect(s.indices(Filter.keep).length, 2);
+    const shot = [1.0, 0.3, 0.7, 0.0, 0.0]; // textless screenshot: the score alone would keep it
+    for (final f in [shot, for (final i in s.keeps.keys) s.features[i]!]) {
+      expect(
+        keepScore(f) >= keepThreshold && !edgeVeto(f),
+        core.keep(f),
+        reason: 'preview scores drifted from pipeline.cpp',
+      );
+    }
+    expect(edgeVeto(shot) && keepScore(shot) >= keepThreshold, true);
 
     s.toggle(at('5_yes.jpeg')); // user rescues one
     await s.deleteSelected();
     expect(s.stage, Stage.done);
-    expect(s.deleted.length, 2);
-    expect(Directory('${root.path}/${FolderSource.trashName}').listSync().length, 2);
-    expect(root.listSync().whereType<File>().length, 9 - 2);
+    expect(s.deleted.length, 3);
+    expect(Directory('${root.path}/${FolderSource.trashName}').listSync().length, 3);
+    expect(root.listSync().whereType<File>().length, 9 - 3);
     root.deleteSync(recursive: true);
   });
 }

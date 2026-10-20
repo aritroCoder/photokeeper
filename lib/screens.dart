@@ -98,39 +98,25 @@ class StartScreen extends StatelessWidget {
 // ---- shared grid cell ----
 
 class Cell extends StatelessWidget {
-  const Cell(this.photo, {super.key, this.badge, this.label, this.onTap});
+  const Cell(this.photo, {super.key, this.badge, this.onTap, this.onLongPress});
   final Photo photo;
   final Widget? badge;
-  final String? label;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final px = (160 * MediaQuery.devicePixelRatioOf(context)).round();
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(6),
         child: Stack(
           fit: StackFit.expand,
           children: [
             photo.image(px),
-            if (badge != null) Positioned(top: 6, right: 6, child: badge!),
-            if (label != null)
-              Positioned(
-                left: 6,
-                bottom: 6,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .9),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    child: Text(label!, style: const TextStyle(fontSize: 11)),
-                  ),
-                ),
-              ),
+            if (badge != null) Positioned(top: 2, right: 2, child: badge!),
           ],
         ),
       ),
@@ -230,7 +216,7 @@ class ReviewScreen extends StatefulWidget {
 }
 
 class _ReviewScreenState extends State<ReviewScreen> {
-  Filter filter = Filter.suggested;
+  Filter filter = Filter.delete;
 
   Future<void> _delete() async {
     final n = widget.session.selected.length;
@@ -279,9 +265,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(
-                        '${f == Filter.suggested ? 'All' : f.name[0].toUpperCase() + f.name.substring(1)} ${s.indices(f).length}',
-                      ),
+                      label: Text('${f.name[0].toUpperCase() + f.name.substring(1)} ${s.indices(f).length}'),
                       selected: filter == f,
                       onSelected: (_) => setState(() => filter = f),
                     ),
@@ -299,14 +283,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 final on = s.selected.contains(i);
                 return Cell(
                   s.photos[i],
-                  label: s.verdictDelete(i) ? reason(s.features[i]!) : null,
-                  badge: Icon(
-                    on ? Icons.check_circle : Icons.circle_outlined,
-                    color: on ? deleteCoral : Colors.white,
-                    size: 22,
-                    shadows: const [Shadow(blurRadius: 4)],
+                  badge: IconButton(
+                    onPressed: () => s.toggle(i),
+                    tooltip: on ? 'Unselect' : 'Select',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      on ? Icons.check_circle : Icons.circle_outlined,
+                      color: on ? deleteCoral : Colors.white,
+                      size: 22,
+                      shadows: const [Shadow(blurRadius: 4)],
+                    ),
                   ),
-                  onTap: () => s.toggle(i),
+                  onTap: () =>
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => SingleReview(s, shown, start: k))),
+                  onLongPress: () {
+                    HapticFeedback.selectionClick();
+                    s.toggle(i);
+                  },
                 );
               },
             ),
@@ -347,15 +340,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
 // ---- 4. one by one: swipe or K/D ----
 
 class SingleReview extends StatefulWidget {
-  const SingleReview(this.session, this.indices, {super.key});
+  const SingleReview(this.session, this.indices, {super.key, this.start = 0});
   final Session session;
   final List<int> indices;
+  final int start;
   @override
   State<SingleReview> createState() => _SingleReviewState();
 }
 
 class _SingleReviewState extends State<SingleReview> {
-  int pos = 0;
+  late int pos = widget.start;
   final undo = <(int, bool)>[]; // (position, was selected)
 
   void _decide(bool delete) {
@@ -421,20 +415,19 @@ class _SingleReviewState extends State<SingleReview> {
                     ),
                   ),
                 ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (var k = 0; k < f.length; k++)
-                      Chip(
-                        label: Text('${signalNames[k]} ${f[k].toStringAsFixed(2)}'),
-                        backgroundColor: _drives(k, why) ? const Color(0xFFFFF1E6) : null,
-                      ),
-                  ],
+                Text(
+                  '${s.verdictDelete(i) ? 'Looks like a $why' : 'Looks like a photo'}'
+                  '  ·  keep score ${keepScore(f).toStringAsFixed(2)}, keeps at $keepThreshold'
+                  '${edgeVeto(f) ? ', but straight edges force delete' : ''}',
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  s.verdictDelete(i) ? 'Looks like a $why' : 'Looks like a photo',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(children: [for (var k = 0; k < f.length; k++) _Score(k, f[k], keepLikeness(f)[k])]),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(24),
@@ -473,13 +466,47 @@ class _SingleReviewState extends State<SingleReview> {
       ),
     );
   }
+}
 
-  static bool _drives(int k, String why) => switch (why) {
-    'screenshot' => k == 2,
-    'text' => k == 4,
-    'document' => k == 1 || k == 3,
-    _ => false,
-  };
+/// One signal as the category it argues for: faces argue keep (green), the rest argue delete (coral).
+class _Score extends StatelessWidget {
+  const _Score(this.k, this.raw, this.keepLike);
+  final int k;
+  final double raw, keepLike;
+
+  static const _labels = [
+    'Photo (faces)',
+    'Document (flat colours)',
+    'Screenshot (straight edges)',
+    'Document (blown-out)',
+    'Text',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final value = k == 0 ? keepLike : 1 - keepLike;
+    return Tooltip(
+      message: '${signalNames[k]} = ${raw.toStringAsFixed(3)}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            SizedBox(width: 190, child: Text(_labels[k])),
+            Expanded(
+              child: LinearProgressIndicator(
+                value: value,
+                color: k == 0 ? keepGreen : deleteCoral,
+                backgroundColor: const Color(0xFFE8E8E4),
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            SizedBox(width: 48, child: Text('${(value * 100).round()}%', textAlign: TextAlign.right)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Swipe extends StatelessWidget {
@@ -512,7 +539,7 @@ class SummaryScreen extends StatelessWidget {
     for (final i in s.keeps.keys) {
       if (deletedIdx.contains(s.photos[i].id)) byReason.update(reason(s.features[i]!), (n) => n + 1, ifAbsent: () => 1);
     }
-    final keptAfterReview = s.indices(Filter.suggested).where((i) => !s.selected.contains(i)).length;
+    final keptAfterReview = s.indices(Filter.delete).where((i) => !s.selected.contains(i)).length;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
