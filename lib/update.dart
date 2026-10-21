@@ -2,7 +2,6 @@
 // Android hands the APK to the system installer, Windows runs the Inno Setup installer silently,
 // Linux and macOS swap the app folder in place and relaunch. iOS sideloads can't install anything,
 // so they only get the link.
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,7 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
-const _latest = 'https://api.github.com/repos/aritroCoder/photokeeper/releases/latest';
+// The website, not api.github.com: the API allows 60 anonymous requests an hour per IP, which CI runners
+// and users behind a shared address run out of.
+const _repo = 'https://github.com/aritroCoder/photokeeper';
 const _android = MethodChannel('photokeeper/update');
 
 String? get _assetName => switch (Platform.operatingSystem) {
@@ -41,21 +42,22 @@ Future<HttpClientResponse> _get(String url) async {
   return res;
 }
 
-Future<File> _download(Map asset, ValueNotifier<double?> progress) async {
+Future<File> _download(String tag, ValueNotifier<double?> progress) async {
   final dir = (await getTemporaryDirectory())..createSync(recursive: true); // unsandboxed macOS: may not exist yet
-  final file = File('${dir.path}/${asset['name']}');
-  final size = asset['size'] as int;
+  final file = File('${dir.path}/$_assetName');
+  final res = await _get('$_repo/releases/download/$tag/$_assetName');
+  final size = res.contentLength;
   final sink = file.openWrite();
   var got = 0;
   try {
-    await for (final chunk in await _get(asset['browser_download_url'])) {
+    await for (final chunk in res) {
       sink.add(chunk);
-      progress.value = (got += chunk.length) / size;
+      if (size > 0) progress.value = (got += chunk.length) / size;
     }
   } finally {
     await sink.close();
   }
-  if (got != size) throw HttpException('Download stopped at $got of $size bytes');
+  if (size > 0 && got != size) throw HttpException('Download stopped at $got of $size bytes');
   return file;
 }
 
@@ -98,15 +100,19 @@ Future<Never> _install(File file) async {
   exit(0);
 }
 
-Future<Map> latestRelease() async => jsonDecode(await utf8.decodeStream(await _get(_latest)));
+/// The newest non-prerelease tag, from where `github.com/<repo>/releases/latest` redirects.
+Future<String> latestTag() async {
+  final res = await (await _http.getUrl(Uri.parse('$_repo/releases/latest'))..followRedirects = false).close();
+  await res.drain<void>();
+  final to = res.headers.value(HttpHeaders.locationHeader);
+  if (!res.isRedirect || to == null) throw HttpException('GitHub answered ${res.statusCode}');
+  return Uri.parse(to).pathSegments.last; // .../releases/tag/v0.0.2; just .../releases if none is published
+}
 
-/// This platform's download in [release], or null on iOS (or if CI failed to publish it).
-Map? assetFor(Map release) => (release['assets'] as List).cast<Map>().where((a) => a['name'] == _assetName).firstOrNull;
-
-/// Downloads and installs [asset]. Desktop quits here and comes back as the new version;
-/// Android returns once the system installer has taken over.
-Future<void> installRelease(Map asset, ValueNotifier<double?> progress) async {
-  final file = await _download(asset, progress);
+/// Downloads and installs this platform's asset of release [tag]. Desktop quits here and comes back as
+/// the new version; Android returns once the system installer has taken over.
+Future<void> installRelease(String tag, ValueNotifier<double?> progress) async {
+  final file = await _download(tag, progress);
   if (Platform.isAndroid) return _android.invokeMethod('install', file.path);
   await _install(file);
 }
@@ -115,37 +121,33 @@ Future<void> installRelease(Map asset, ValueNotifier<double?> progress) async {
 Future<void> checkForUpdates(BuildContext context) async {
   final messenger = ScaffoldMessenger.of(context);
   void say(String s) => messenger.showSnackBar(SnackBar(content: Text(s)));
-  final Map release;
-  final String version;
+  final String tag, version;
   try {
     version = (await PackageInfo.fromPlatform()).version;
-    release = await latestRelease();
+    tag = await latestTag();
   } catch (e) {
     return say('Could not check for updates: $e');
   }
-  final tag = release['tag_name'] as String;
   if (!isNewer(tag, version)) return say('PhotoKeeper $version is the latest version.');
-  final asset = assetFor(release);
   if (!context.mounted) return;
 
-  final url = release['html_url'] as String;
+  final url = '$_repo/releases/tag/$tag';
+  final manual = _assetName == null;
   final go = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
-      title: Text(asset != null ? 'PhotoKeeper $tag is available' : 'Update PhotoKeeper manually'),
-      content: Text(switch (asset) {
-        _? => 'You have $version. The update downloads from GitHub and PhotoKeeper restarts.',
-        null when Platform.isIOS =>
-          'PhotoKeeper $tag is out (you have $version), but iPhone apps installed outside the App Store '
-              'can\'t update themselves.\n\n'
-              'To update: download photokeeper-ios-unsigned.ipa from the release page below and install it '
-              'with AltStore or Sideloadly, the same way you installed PhotoKeeper the first time.\n\n$url',
-        null => 'PhotoKeeper $tag is out (you have $version), but it has no download for this device yet. '
-            'Get it from the release page:\n\n$url',
-      }),
+      title: Text(manual ? 'Update PhotoKeeper manually' : 'PhotoKeeper $tag is available'),
+      content: Text(
+        manual
+            ? 'PhotoKeeper $tag is out (you have $version), but iPhone apps installed outside the App Store '
+                  'can\'t update themselves.\n\n'
+                  'To update: download photokeeper-ios-unsigned.ipa from the release page below and install it '
+                  'with AltStore or Sideloadly, the same way you installed PhotoKeeper the first time.\n\n$url'
+            : 'You have $version. The update downloads from GitHub and PhotoKeeper restarts.',
+      ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Later')),
-        if (asset != null)
+        if (!manual)
           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Update'))
         else
           FilledButton(
@@ -174,7 +176,7 @@ Future<void> checkForUpdates(BuildContext context) async {
     ),
   );
   try {
-    await installRelease(asset!, progress);
+    await installRelease(tag, progress);
     navigator.pop();
   } catch (e) {
     navigator.pop();

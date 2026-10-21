@@ -8,9 +8,7 @@ import 'package:photokeeper/update.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    final asset = assetFor(await latestRelease());
-    if (asset == null) throw StateError('latest release has no asset for ${Platform.operatingSystem}');
-    await installRelease(asset, ValueNotifier(null));
+    await installRelease(await latestTag(), ValueNotifier(null));
   } catch (e) {
     stderr.writeln('self-update failed: $e');
     exit(1);
