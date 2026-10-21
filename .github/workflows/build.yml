@@ -74,6 +74,7 @@ jobs:
         shell: pwsh
         run: |
           flutter build windows --release -t tool/update_selftest.dart --build-name=0.0.0
+          if ($LASTEXITCODE) { throw "Self-update build failed" }  # else the real app from the step above runs
           $p = Start-Process build\windows\x64\runner\Release\photokeeper.exe -PassThru
           $p.WaitForExit()  # not Start-Process -Wait, which also waits for the setup it spawns
           if ($p.ExitCode -ne 0) { throw "Updater exited with $($p.ExitCode)" }

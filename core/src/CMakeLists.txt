@@ -15,6 +15,9 @@ FetchContent_Declare(photokeeper GIT_REPOSITORY https://github.com/aritroCoder/p
 # OpenCV probes video backends even when videoio is outside BUILD_LIST. Its Orbbec SDK
 # probe assumes OpenCV is the top-level project and fails when embedded on macOS arm64.
 set(WITH_OBSENSOR OFF CACHE BOOL "Build without the unused Orbbec camera backend" FORCE)
+# OpenCV resolves paths against the install prefix while configuring. Flutter's Windows runner caches that
+# prefix as a generator expression, so every re-configure failed in OpenCV; nothing installs from here anyway.
+set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/unused-install")
 FetchContent_MakeAvailable(photokeeper)
 # Flutter bundles photokeeper_core below; the static dependencies need no installation.
 # Exclude the entire dependency tree so INSTALL cannot enter OpenCV, whose install

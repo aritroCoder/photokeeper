@@ -42,7 +42,8 @@ Future<HttpClientResponse> _get(String url) async {
 }
 
 Future<File> _download(Map asset, ValueNotifier<double?> progress) async {
-  final file = File('${(await getTemporaryDirectory()).path}/${asset['name']}');
+  final dir = (await getTemporaryDirectory())..createSync(recursive: true); // unsandboxed macOS: may not exist yet
+  final file = File('${dir.path}/${asset['name']}');
   final size = asset['size'] as int;
   final sink = file.openWrite();
   var got = 0;
