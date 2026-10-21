@@ -25,10 +25,13 @@ jobs:
       - &flutter
         uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', cache: true }
-      - run: sudo apt-get update && sudo apt-get install -y clang ninja-build libgtk-3-dev xvfb
+      - run: sudo apt-get update && sudo apt-get install -y clang ninja-build libgtk-3-dev xvfb ccache
+      - uses: ./.github/actions/setup-ccache
       - run: flutter analyze
       - run: flutter test test/update_test.dart
       - run: flutter build linux --release
+      - name: Native compiler cache statistics
+        run: ccache --show-stats
       - run: tar -C build/linux/x64/release -czf photokeeper-linux-x64.tar.gz bundle
       # This build's updater (as version 0.0.0) must replace itself with the latest published release and relaunch.
       - name: Self-update test
@@ -93,7 +96,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # PR caches are scoped to their merge ref; allow a rerun to measure warm builds.
+          cache-read-only: false
       - *flutter
+      - uses: ./.github/actions/setup-ccache
       - name: Release signing key (an APK signed with any other key can't update installed copies)
         env: { KEYSTORE_B64: '${{ secrets.ANDROID_KEYSTORE_B64 }}' }
         run: |
@@ -106,6 +114,8 @@ jobs:
       - name: CMake version pinned in core/android/build.gradle (the core needs >= 3.24)
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" > /dev/null
       - run: flutter build apk --release
+      - name: Native compiler cache statistics
+        run: ccache --show-stats
       - run: cp build/app/outputs/flutter-apk/app-release.apk photokeeper-android-arm64.apk
       - name: Signed with the release key, not a debug key
         if: env.ANDROID_KEYSTORE != ''
@@ -120,7 +130,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - *flutter
-      - run: sh core/apple/build.sh
+      - name: Identify the Apple toolchain
+        id: toolchain
+        run: |
+          {
+            xcodebuild -version
+            xcrun clang --version
+            xcrun --sdk iphoneos --show-sdk-version
+            xcrun --sdk iphonesimulator --show-sdk-version
+            xcrun --sdk macosx --show-sdk-version
+            cmake --version
+            sw_vers -productVersion
+          } > "$RUNNER_TEMP/apple-toolchain.txt"
+          fingerprint=$(shasum -a 256 "$RUNNER_TEMP/apple-toolchain.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore the native Apple frameworks
+        id: apple-core
+        uses: actions/cache@v4
+        with:
+          path: |
+            core/ios/Frameworks
+            core/macos/Frameworks
+          # Exact matches only: these are finished binaries, not compiler cache entries.
+          key: apple-core-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('core/src/**', 'core/apple/build.sh') }}
+      - name: Build the native Apple frameworks
+        if: steps.apple-core.outputs.cache-hit != 'true'
+        run: sh core/apple/build.sh
       - run: flutter build macos --release
       - run: ditto -c -k --keepParent build/macos/Build/Products/Release/photokeeper.app photokeeper-macos-arm64.zip
       - name: Self-update test (see linux)
