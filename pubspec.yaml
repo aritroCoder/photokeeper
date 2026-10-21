@@ -20,8 +20,26 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/models/
+
+# Regenerate with: dart run flutter_launcher_icons (masters come from design/icons/make_icons.py)
+flutter_launcher_icons:
+  image_path: design/icons/icon.png
+  android: true
+  adaptive_icon_background: "#064349"
+  adaptive_icon_foreground: design/icons/icon_foreground.png
+  adaptive_icon_foreground_inset: 0  # the foreground PNG already sits inside the safe zone
+  ios: true
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: design/icons/icon_rounded.png
+  windows:
+    generate: true
+    image_path: design/icons/icon_rounded.png
+    icon_size: 256
