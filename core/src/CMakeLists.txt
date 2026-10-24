@@ -5,13 +5,16 @@ project(photokeeper_core_library LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # static OpenCV + pipeline end up inside a shared library
 
 # The C++ core is its own repo. A sibling checkout wins so core changes can be developed in place;
-# otherwise (CI) fetch it. shortcut: GIT_TAG tracks the cpp branch, pin a commit before the first release.
+# otherwise (CI) fetch this immutable revision. Bump it to pick up native changes;
+# the Apple framework cache includes this file so a revision bump invalidates it.
 include(FetchContent)
 set(sibling "${CMAKE_CURRENT_SOURCE_DIR}/../../../photokeeper")
 if(EXISTS "${sibling}/pipeline_c/pk.h")  # not just any ../photokeeper: in CI that is this app repo itself
   set(FETCHCONTENT_SOURCE_DIR_PHOTOKEEPER "${sibling}")
 endif()
-FetchContent_Declare(photokeeper GIT_REPOSITORY https://github.com/aritroCoder/photokeeper-cli.git GIT_TAG cpp GIT_SHALLOW TRUE)
+FetchContent_Declare(photokeeper
+  GIT_REPOSITORY https://github.com/aritroCoder/photokeeper-cli.git
+  GIT_TAG 9a24879f2d312e35408534e03aae0c96a0baeca6)
 # OpenCV probes video backends even when videoio is outside BUILD_LIST. Its Orbbec SDK
 # probe assumes OpenCV is the top-level project and fails when embedded on macOS arm64.
 set(WITH_OBSENSOR OFF CACHE BOOL "Build without the unused Orbbec camera backend" FORCE)
