@@ -157,7 +157,13 @@ jobs:
         if: steps.apple-core.outputs.cache-hit != 'true'
         run: sh core/apple/build.sh
       - run: flutter build macos --release
+      # The .dmg is for people; the .zip is what installed copies' updaters download, so it must stay.
       - run: ditto -c -k --keepParent build/macos/Build/Products/Release/photokeeper.app photokeeper-macos-arm64.zip
+      - name: Drag-to-Applications .dmg
+        run: |
+          mkdir dmg && ditto build/macos/Build/Products/Release/photokeeper.app dmg/photokeeper.app
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname PhotoKeeper -srcfolder dmg -format UDZO photokeeper-macos-arm64.dmg
       - name: Self-update test (see linux)
         timeout-minutes: 10
         run: |
@@ -177,6 +183,7 @@ jobs:
         with:
           name: apple
           path: |
+            photokeeper-macos-arm64.dmg
             photokeeper-macos-arm64.zip
             photokeeper-ios-unsigned.ipa
 
