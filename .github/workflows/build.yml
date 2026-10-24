@@ -37,6 +37,9 @@ jobs:
       - name: Self-update test
         timeout-minutes: 10
         run: |
+          # Nothing to update to while the latest release has no assets yet, e.g. during its own tag build.
+          curl -sfIL -o /dev/null "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/photokeeper-linux-x64.tar.gz" ||
+            { echo "::notice::latest release has no Linux asset; skipping"; exit 0; }
           flutter build linux --release -t tool/update_selftest.dart --build-name=0.0.0
           app="$RUNNER_TEMP/bundle"
           cp -r build/linux/x64/release/bundle "$app"
@@ -76,6 +79,8 @@ jobs:
         timeout-minutes: 10
         shell: pwsh
         run: |
+          curl.exe -sfIL -o NUL "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/photokeeper-windows-x64-setup.exe"
+          if ($LASTEXITCODE) { "::notice::latest release has no Windows asset; skipping"; exit 0 }
           flutter build windows --release -t tool/update_selftest.dart --build-name=0.0.0
           if ($LASTEXITCODE) { throw "Self-update build failed" }  # else the real app from the step above runs
           $p = Start-Process build\windows\x64\runner\Release\photokeeper.exe -PassThru
@@ -167,6 +172,8 @@ jobs:
       - name: Self-update test (see linux)
         timeout-minutes: 10
         run: |
+          curl -sfIL -o /dev/null "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/photokeeper-macos-arm64.zip" ||
+            { echo "::notice::latest release has no macOS asset; skipping"; exit 0; }
           flutter build macos --release -t tool/update_selftest.dart --build-name=0.0.0
           app="$RUNNER_TEMP/apps/photokeeper.app"
           mkdir -p "$RUNNER_TEMP/apps" && ditto build/macos/Build/Products/Release/photokeeper.app "$app"
@@ -203,7 +210,8 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           v=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
-          [ "${GITHUB_REF_NAME#v}" = "$v" ] || { echo "::error::tag $GITHUB_REF_NAME but pubspec.yaml says $v"; exit 1; }
+          t=${GITHUB_REF_NAME#v}   # v0.0.1-alpha: the updater ignores the -suffix, and Apple versions can't have one
+          [ "${t%%-*}" = "$v" ] || { echo "::error::tag $GITHUB_REF_NAME but pubspec.yaml says $v"; exit 1; }
       - uses: actions/download-artifact@v4
         with: { merge-multiple: true }
       - name: Publish a GitHub Release
@@ -216,5 +224,9 @@ jobs:
             gh release delete latest --yes --cleanup-tag || true   # replace the previous build
             gh api -X DELETE "repos/$GH_REPO/git/refs/tags/latest" || true   # else create reuses the old commit
           fi
-          gh release create "$tag" photokeeper-* --title "$title" --target "${{ github.sha }}" $flags \
-            --notes "Built from ${{ github.sha }}. Unsigned: sideload only."
+          if [ "$tag" != latest ] && gh release view "$tag" > /dev/null 2>&1; then   # made on github.com first
+            gh release upload "$tag" photokeeper-* --clobber
+          else
+            gh release create "$tag" photokeeper-* --title "$title" --target "${{ github.sha }}" $flags \
+              --notes "Built from ${{ github.sha }}. Unsigned: sideload only."
+          fi
